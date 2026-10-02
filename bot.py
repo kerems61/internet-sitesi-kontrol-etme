@@ -4,7 +4,6 @@ import smtplib
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from bs4::element import Tag
 from bs4 import BeautifulSoup
 import requests
 
@@ -57,19 +56,18 @@ def duyurulari_kontrol_et():
     en_son_link = ""
     en_son_tarih = ""
 
-    # Tablo içerisindeki tüm satırları bulup, içinde tarih (örn: xx/xx/xxxx veya xx.xx.xxxx) geçen satırları yakalayalım
+    # Tablo satırlarını tarayıp tarih içeren ilk duyuruyu alıyoruz
     for tr in soup.find_all("tr"):
       tds = tr.find_all("td")
       if len(tds) >= 2:
         tarih_aday = tds[0].get_text(strip=True)
-        # Tarih formatı içeriyor mu kontrol edelim (nokta veya slash ile)
         if "." in tarih_aday or "/" in tarih_aday:
           link_tag = tds[1].find("a")
           if link_tag:
             en_son_tarih = tarih_aday
             en_son_baslik = link_tag.get_text(strip=True)
             en_son_link = link_tag.get("href", "")
-            break  # İlk bulduğumuz en güncel duyurudur
+            break
 
     if en_son_baslik:
       if en_son_link.startswith("/"):
@@ -86,10 +84,10 @@ def duyurulari_kontrol_et():
       )
       eposta_gonder(konu, icerik)
     else:
-      konu = "ℹ️ MEB YYEGM Günlük Kontrol"
+      konu = "ℹ️️ MEB YYEGM Günlük Kontrol"
       icerik = (
           f"Bugün ({bugun_tarih}) saat 17.00 itibarıyla sayfa kontrol edildi,"
-          f" ancak geçerli bir duyuru satırı bulunamadı.\n\nAdres: {URL}"
+          f" ancak duyuru satırı bulunamadı.\n\nAdres: {URL}"
       )
       eposta_gonder(konu, icerik)
 
