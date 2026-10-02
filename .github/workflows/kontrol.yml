@@ -1,0 +1,27 @@
+name: MEB YYEGM Kontrol Botu
+
+on:
+  schedule:
+    # Türkiye saati (UTC+3) ile her gün saat 17:00'de çalışması için UTC 14:00 ayarlanmıştır
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+
+jobs:
+  calistir:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodlari Cek
+        uses: actions/checkout@v4
+
+      - name: Python Kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Kutuphaneleri Yukle
+        run: pip install requests beautifulsoup4
+
+      - name: Botu Calistir
+        env:
+          GMAIL_SIFRE: ${{ secrets.GMAIL_SIFRE }}
+        run: python bot.py
