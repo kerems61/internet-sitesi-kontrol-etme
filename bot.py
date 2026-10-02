@@ -4,6 +4,7 @@ import smtplib
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from bs4::element import Tag
 from bs4 import BeautifulSoup
 import requests
 
@@ -52,27 +53,25 @@ def duyurulari_kontrol_et():
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # Sayfadaki tüm bağlantıları tarayıp gerçek duyuru başlığı olabilecek metinleri bulalım
-    bulunan_duyurular = []
+    en_son_baslik = ""
+    en_son_link = ""
+    en_son_tarih = ""
 
-    for a_tag in soup.find_all("a"):
-      metin = a_tag.get_text(strip=True)
-      link = a_tag.get("href", "")
-      
-      # Menü, anasayfa veya kısa/alakasız linkleri eleyelim, gerçek duyuru metinlerini alalım
-      if (
-          len(metin) > 20
-          and "Anasayfa" not in metin
-          and "Bakanlık" not in metin
-          and "Mevzuat" not in metin
-          and "İletişim" not in metin
-      ):
-        bulunan_duyurular.append((metin, link))
+    # Tablo içerisindeki tüm satırları bulup, içinde tarih (örn: xx/xx/xxxx veya xx.xx.xxxx) geçen satırları yakalayalım
+    for tr in soup.find_all("tr"):
+      tds = tr.find_all("td")
+      if len(tds) >= 2:
+        tarih_aday = tds[0].get_text(strip=True)
+        # Tarih formatı içeriyor mu kontrol edelim (nokta veya slash ile)
+        if "." in tarih_aday or "/" in tarih_aday:
+          link_tag = tds[1].find("a")
+          if link_tag:
+            en_son_tarih = tarih_aday
+            en_son_baslik = link_tag.get_text(strip=True)
+            en_son_link = link_tag.get("href", "")
+            break  # İlk bulduğumuz en güncel duyurudur
 
-    if bulunan_duyurular:
-      # Sayfadaki en güncel duyuru (listede ilk sırada yer alan)
-      en_son_baslik, en_son_link = bulunan_duyurular[0]
-
+    if en_son_baslik:
       if en_son_link.startswith("/"):
         en_son_link = "https://yyegm.meb.gov.tr" + en_son_link
       elif not en_son_link.startswith("http"):
@@ -81,15 +80,16 @@ def duyurulari_kontrol_et():
       konu = "📢 MEB YYEGM: En Son Duyuru"
       icerik = (
           f"Merhaba,\n\nMEB YYEGM duyuru sayfasındaki en son duyuru başarıyla"
-          f" yakalandı:\n\n📌 Duyuru Başlığı:\n{en_son_baslik}\n\n🔗 Bağlantı:"
-          f" {en_son_link}\n\nKontrol Edilen Zaman: {bugun_tarih}"
+          f" yakalandı:\n\n📅 Tarih: {en_son_tarih}\n📌 Duyuru Başlığı:"
+          f"\n{en_son_baslik}\n\n🔗 Bağlantı: {en_son_link}\n\nKontrol Edilen"
+          f" Zaman: {bugun_tarih}"
       )
       eposta_gonder(konu, icerik)
     else:
       konu = "ℹ️ MEB YYEGM Günlük Kontrol"
       icerik = (
           f"Bugün ({bugun_tarih}) saat 17.00 itibarıyla sayfa kontrol edildi,"
-          f" ancak duyuru metnine ulaşılamadı.\n\nAdres: {URL}"
+          f" ancak geçerli bir duyuru satırı bulunamadı.\n\nAdres: {URL}"
       )
       eposta_gonder(konu, icerik)
 
