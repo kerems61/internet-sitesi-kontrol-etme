@@ -55,47 +55,18 @@ def duyurulari_kontrol_et():
     en_son_baslik = ""
     en_son_link = ""
 
-    # Sayfadaki tablo benzeri listelemeleri veya tüm bağlantıları tarayıp
-    # en üstteki geçerli duyuruyu bulalım. Menü bağlantılarını filtreliyoruz.
-    haric_kelimeler = [
-        "Anasayfa",
-        "Bakanlık",
-        "Mevzuat",
-        "İletişim",
-        "Genel Müdürlük",
-        "RSS",
-        "S.S.S",
-        "Programı",
-        "Eğitim",
-        "Dersi",
-    ]
-
+    # Sayfadaki tüm linkleri tarayıp sadece duyuru içeren adresleri filtreleyelim
     for a in soup.find_all("a"):
       metin = a.get_text(strip=True)
       link = a.get("href", "")
 
-      # Eğer metin anlamlı bir uzunluktaysa ve ana menü kelimelerini içermiyorsa duyurudur
-      if len(metin) > 15:
-        is_menu = False
-        for kelime in haric_kelimeler:
-          # Sadece tam menü başlıklarını elemek için
-          if metin == kelime:
-            is_menu = True
-            break
-
-        if not is_menu and "www/duyuru" in link or len(metin) > 30:
-          en_son_baslik = metin
-          en_son_link = link
-          break
-
-    # Eğer yukarıdakilerle bulunamadıysa, sayfadaki tablo veya liste elemanındaki ilk uzun metni alalım
-    if not en_son_baslik:
-      for a in soup.find_all("a"):
-        metin = a.get_text(strip=True)
-        if len(metin) > 30:  # Duyuru başlıkları genelde uzundur
-          en_son_baslik = metin
-          en_son_link = a.get("href", "")
-          break
+      # Bağlantı adresinde duyuru veya detay geçiyorsa ve metin yeterince uzunsa bu kesinlikle gerçek bir duyurudur
+      if link and (
+          "duyuru" in link.lower() or "detay" in link.lower()
+      ) and len(metin) > 15:
+        en_son_baslik = metin
+        en_son_link = link
+        break
 
     if en_son_baslik:
       if en_son_link.startswith("/"):
@@ -114,7 +85,7 @@ def duyurulari_kontrol_et():
       konu = "ℹ️ MEB YYEGM Günlük Kontrol"
       icerik = (
           f"Bugün ({bugun_tarih}) saat 17.00 itibarıyla sayfa kontrol edildi,"
-          f" ancak duyuru metnine ulaşılamadı.\n\nAdres: {URL}"
+          f" ancak duyuru bağlantısına ulaşılamadı.\n\nAdres: {URL}"
       )
       eposta_gonder(konu, icerik)
 
