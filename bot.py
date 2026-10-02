@@ -1,6 +1,5 @@
 from datetime import datetime
 import os
-import re
 import smtplib
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
@@ -36,9 +35,6 @@ def eposta_gonder(konu, icerik):
 
 def duyurulari_kontrol_et():
   bugun_tarih = datetime.now().strftime("%d.%m.%Y")
-  print(
-      f"Kontrol edilen tarih: {bugun_tarih} - Adres taranıyor: {URL}"
-  )
 
   try:
     headers = {
@@ -51,62 +47,48 @@ def duyurulari_kontrol_et():
     response.encoding = "utf-8"
 
     if response.status_code != 200:
-      print(f"Siteye erişilemedi. HTTP Kodu: {response.status_code}")
+      print("Siteye erişilemedi.")
       return
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # Sayfadaki tüm metin içeriğini veya duyuru bloklarını tarayarak bugünün tarihini arayalım
-    sayfa_metni = soup.get_text()
-
-    # Regex ile sayfada bugünün tarihi (örn: 02.06.2026 veya benzeri formatlar) geçiyor mu diye bakıyoruz
-    # Veya sayfadaki ilk duyuru başlığını ve tarihini yakalayalım
-    yeni_duyurular = []
-
-    # MEB sitelerindeki yaygın yapıları yakalamak için tüm bağlantıları ve metinleri tarayalım
-    # Burada en güncel duyurunun tarihini kontrol edeceğiz
-    duyuru_kutulari = soup.find_all(
-        ["div", "li", "tr"],
-        class_=lambda x: x and ("duyuru" in x.lower() or "news" in x.lower()),
-    )
-
-    # Eğer özel sınıf bulunamazsa genel bağlantı ve metin analizi yapalım
-    bulundu = False
-    ilgili_metin = ""
-
-    for item in soup.find_all(["a", "div", "span"]):
-      metin = item.get_text(strip=True)
-      # Tarih formatını sayfada arıyoruz (GG.AA.YYYY)
-      if bugun_tarih in metin:
-        bulundu = True
-        ilgili_metin = metin
+    # Sayfadaki en güncel (en üstteki) duyuruyu ve bağlantısını çekelim
+    # MEB sayfalarındaki duyuru başlıklarını ve linklerini barındıran etiketleri buluyoruz
+    duyuru_elementi = None
+    for a_tag in soup.find_all("a"):
+      metin = a_tag.get_text(strip=True)
+      # Genellikle duyuru başlıkları belirli bir uzunluktadır ve bağlantı içerir
+      if len(metin) > 15:
+        duyuru_elementi = a_tag
         break
 
-    if bulundu or bugun_tarih in sayfa_metni:
-      # Alternatif olarak daha detaylı bilgi için sayfanın başlığını alalım
-      konu = "🚨 MEB YYEGM: Bugün Yeni Duyuru Var!"
+    if duyuru_elementi:
+      duyuru_basligi = duyuru_elementi.get_text(strip=True)
+      duyuru_link = duyuru_elementi.get("href", "")
+
+      # Eğer link göreceli (relative) ise tam adrese çevirelim
+      if duyuru_link.startswith("/"):
+        duyuru_link = "https://yyegm.meb.gov.tr" + duyuru_link
+      elif not duyuru_link.startswith("http"):
+        duyuru_link = URL
+
+      konu = "📢 MEB YYEGM: En Son Duyuru Detayı"
       icerik = (
-          f"Merhaba,\n\nBugün ({bugun_tarih}) tarihli MEB YYEGM duyuru"
-          " sayfasında yeni bir güncelleme veya bugünün tarihine ait bir ibare"
-          f" saptandı.\n\nİlgili Detay:\n{ilgili_metin[:300]}\n\nKontrol Edilen"
-          f" Adres:\n{URL}"
+          f"Merhaba,\n\nMEB YYEGM duyuru sayfası kontrol edildi. Sayfadaki en"
+          f" son duyuru:\n\n📌 Başlık:\n{duyuru_basligi}\n\n🔗 Bağlantı:"
+          f" {duyuru_link}\n\nKontrol Edilen Tarih: {bugun_tarih}"
       )
       eposta_gonder(konu, icerik)
     else:
-      konu = "ℹ️ MEB YYEGM Günlük Kontrol: Güncelleme Yok"
+      konu = "ℹ️ MEB YYEGM Günlük Kontrol"
       icerik = (
-          f"Bugün ({bugun_tarih}) saat 17.00 itibarıyla MEB YYEGM duyuru"
-          " sayfası kontrol edildi. Tarih bazlı yeni bir duyuruya"
-          " rastlanmadı, sistem güncel.\n\nKontrol Edilen Adres:\n{URL}"
+          f"Bugün ({bugun_tarih}) saat 17.00 itibarıyla sayfa kontrol edildi,"
+          " ancak yeni bir duyuru öğesine ulaşılamadı.\n\nAdres: {URL}"
       )
       eposta_gonder(konu, icerik)
 
   except Exception as e:
-    print(f"Hata oluştu: {e}")
-    eposta_gonder(
-        "⚠️️ MEB YYEGM Bot Hatası",
-        f"Kontrol sırasında bir hata oluştu: {str(e)}",
-    )
+    print(f"Hata: {e}")
 
 
 if __name__ == "__main__":
