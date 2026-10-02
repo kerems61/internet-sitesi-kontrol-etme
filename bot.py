@@ -15,7 +15,7 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 URL = "https://yyegm.meb.gov.tr/www/duyurular/kategori/2"
 
-# TEST İÇİN BURAYI 16 YAPABİLİRSİN. (Normalde 1 kalmalı)
+# TEST İÇİN 16. (Çalıştığını görünce burayı 1 yapabilirsin)
 KONTROL_GUN_SAYISI = 16  
 # ===========================================
 
@@ -34,7 +34,7 @@ def eposta_gonder(konu, icerik):
       server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
     print("E-posta başarıyla gönderildi.")
   except Exception as e:
-    print(f"E-posta gönderilirken hata oluştu: {e}")
+    print(f"Hata: {e}")
 
 def duyurulari_kontrol_et():
   bugun = datetime.now()
@@ -56,58 +56,68 @@ def duyurulari_kontrol_et():
 
     soup = BeautifulSoup(response.text, "html.parser")
     yeni_duyuru_bulundu = False
+    teshis_listesi = []
 
-    # Sayfadaki tüm satırları (tr) geziyoruz
-    for tr in soup.find_all("tr"):
-      tds = tr.find_all("td")
-      
-      if len(tds) >= 2:
-        tarih_metni = tds[0].get_text(strip=True)
+    # Yanlışlıkla menüleri almamak için kara liste
+    kara_liste = ["ANASAYFA", "İLETİŞİM", "MEVZUAT", "BAKANLIK", "GENEL MÜDÜRLÜK", "YURT DIŞI", "HİZMETLER"]
+
+    # Sayfadaki tüm linkleri tarıyoruz
+    for a in soup.find_all("a"):
+      metin = a.get_text(strip=True)
+      link = a.get("href", "")
+
+      # Eğer 25 karakterden uzunsa ve menü değilse kesinlikle duyurudur!
+      if len(metin) > 25 and not any(k in metin.upper() for k in kara_liste):
         
-        # re.search ile metnin içinden sadece tarihi cımbızla çekiyoruz (boşluklara takılmamak için)
-        tarih_eslesme = re.search(r"\d{2}[/.]\d{2}[/.]\d{4}", tarih_metni)
+        # Duyurunun etrafındaki (parent) HTML yapısını alıp tarihi arıyoruz
+        parent = a.find_parent("tr")
+        if not parent:
+            parent = a.find_parent("div")
+        
+        parent_text = parent.get_text(strip=True) if parent else metin
+        
+        # Etrafındaki metnin içinden tarihi (\d{2}/\d{2}/\d{4}) cımbızla çekiyoruz
+        tarih_eslesme = re.search(r"(\d{2}[/.]\d{2}[/.]\d{4})", parent_text)
+        
+        tarih_str = "Tarih Bulunamadı"
+        fark_gun = -1
         
         if tarih_eslesme:
-          # Bulunan tarihi güvenli bir şekilde alıp noktalı formata çeviriyoruz
-          temiz_tarih_str = tarih_eslesme.group(0).replace("/", ".")
-          
+          tarih_str = tarih_eslesme.group(1).replace("/", ".")
           try:
-            duyuru_tarihi = datetime.strptime(temiz_tarih_str, "%d.%m.%Y")
+            duyuru_tarihi = datetime.strptime(tarih_str, "%d.%m.%Y")
+            fark_gun = (bugun - duyuru_tarihi).days
           except ValueError:
-            continue
-          
-          # Gün farkını hesaplıyoruz
-          fark_gun = (bugun - duyuru_tarihi).days
-          
-          # EĞER DUYURU BELİRTİLEN GÜN ARALIĞINDAYSA:
-          if 0 <= fark_gun <= KONTROL_GUN_SAYISI:
-            baslik_etiketi = tds[1].find("a")
+            pass
             
-            if baslik_etiketi:
-              baslik = baslik_etiketi.get_text(strip=True)
-              link = baslik_etiketi.get("href", "")
-              
-              if not link.startswith("http"):
-                link = "https://yyegm.meb.gov.tr/" + link.lstrip("/")
-                
-              konu = "🚨 YENİ DUYURU EKLENDİ!"
-              icerik = (
-                  f"Merhaba,\n\nMEB YYEGM sayfasında SON {KONTROL_GUN_SAYISI} GÜN İÇİNDE yayınlanan bir duyuru bulundu:\n\n"
-                  f"📅 Tarih: {temiz_tarih_str}\n"
-                  f"📌 Başlık: {baslik}\n"
-                  f"🔗 Link: {link}\n\n"
-                  f"Kontrol Edilen Zaman: {bugun_str}"
-              )
-              
-              eposta_gonder(konu, icerik)
-              yeni_duyuru_bulundu = True
+        # Teşhis raporu için botun bulduğu duyuruyu kaydediyoruz
+        teshis_listesi.append(f"- {metin[:45]}... (Tarih: {tarih_str}, Fark: {fark_gun} gün)")
 
-    # Eğer şartları sağlayan hiçbir duyuru bulunamadıysa:
+        # Eğer duyuru bizim belirlediğimiz gün aralığındaysa (0 ile 16 arası) MAİL AT!
+        if 0 <= fark_gun <= KONTROL_GUN_SAYISI:
+          if not link.startswith("http"):
+            link = "https://yyegm.meb.gov.tr/" + link.lstrip("/")
+            
+          konu = "🚨 YENİ DUYURU EKLENDİ!"
+          icerik = (
+              f"Merhaba,\n\nMEB YYEGM sayfasında SON {KONTROL_GUN_SAYISI} GÜN İÇİNDE yayınlanan bir duyuru bulundu:\n\n"
+              f"📅 Tarih: {tarih_str} ({fark_gun} gün önce)\n"
+              f"📌 Başlık: {metin}\n"
+              f"🔗 Link: {link}\n\n"
+              f"Kontrol Edilen Zaman: {bugun_str}"
+          )
+          eposta_gonder(konu, icerik)
+          yeni_duyuru_bulundu = True
+
+    # Eğer şartları sağlayan yeni bir şey YOKSA, botun ne gördüğünü raporla:
     if not yeni_duyuru_bulundu:
-      konu = "ℹ️ MEB YYEGM Günlük Kontrol"
+      en_son_3 = "\n".join(teshis_listesi[:3]) if teshis_listesi else "Listede duyuru metni algılanamadı."
+      konu = "ℹ️ MEB YYEGM Günlük Kontrol (Teşhis Raporlu)"
       icerik = (
           f"Bugün ({bugun_str}) saat 17.00 itibarıyla sayfa kontrol edildi.\n"
           f"Son {KONTROL_GUN_SAYISI} gün içinde yayınlanmış YENİ BİR DUYURU YOKTUR.\n\n"
+          f"--- BOTUN SİTEDE GÖRDÜĞÜ EN SON DUYURULAR ---\n"
+          f"{en_son_3}\n\n"
           f"Adres: {URL}"
       )
       eposta_gonder(konu, icerik)
