@@ -77,7 +77,7 @@ def duyurulari_kontrol_et():
           fark_gun = (bugun - duyuru_tarihi).days
           
           # EĞER DUYURU SON 1 GÜN İÇİNDE YAYINLANMIŞSA:
-          if fark_gun <= 16 and fark_gun >= 0:
+          if fark_gun <= 30 and fark_gun >= 0:
             baslik_etiketi = tds[1].find("a")
             
             if baslik_etiketi:
