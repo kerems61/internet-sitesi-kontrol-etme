@@ -14,7 +14,6 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 URL = "https://yyegm.meb.gov.tr/www/duyurular/kategori/2"
 
-
 def eposta_gonder(konu, icerik):
   try:
     sifre = os.environ.get("GMAIL_SIFRE")
@@ -31,7 +30,6 @@ def eposta_gonder(konu, icerik):
     print("E-posta başarıyla gönderildi.")
   except Exception as e:
     print(f"E-posta gönderilirken hata oluştu: {e}")
-
 
 def duyurulari_kontrol_et():
   bugun_tarih = datetime.now().strftime("%d.%m.%Y")
@@ -55,32 +53,27 @@ def duyurulari_kontrol_et():
     en_son_baslik = ""
     en_son_link = ""
 
-    haric_listesi = [
-        "Anasayfa",
-        "Bakanlık",
-        "Mevzuat",
-        "İletişim",
-        "Genel Müdürlük",
-        "RSS",
-        "S.S.S",
-        "Programı",
-        "Yurt Dışı Eğitim",
-    ]
-
+    # Sayfadaki tüm linkleri tarıyoruz
     for a in soup.find_all("a"):
       metin = a.get_text(strip=True)
       link = a.get("href", "")
 
-      if len(metin) > 25 and not any(haric in metin for haric in haric_listesi):
+      # İçi boş linkleri veya çok kısa anlamsız metinleri atla
+      if not link or len(metin) < 10:
+        continue
+
+      # SADECE URL'sinde "/icerik/" veya dosya (pdf vb.) geçen gerçek MEB duyurularını al
+      # Logolar, iletişim veya kategori menüleri otomatik elenmiş olur
+      if "/icerik/" in link.lower() or ".pdf" in link.lower() or "meb_iys_dosyalar" in link.lower():
         en_son_baslik = metin
         en_son_link = link
-        break
+        break  # İlk bulduğumuz (en üstteki) duyuruyu al ve aramayı bitir
 
     if en_son_baslik:
       if en_son_link.startswith("/"):
         en_son_link = "https://yyegm.meb.gov.tr" + en_son_link
       elif not en_son_link.startswith("http"):
-        en_son_link = URL
+        en_son_link = "https://yyegm.meb.gov.tr/" + en_son_link
 
       konu = "📢 MEB YYEGM: En Son Duyuru"
       icerik = (
@@ -93,13 +86,12 @@ def duyurulari_kontrol_et():
       konu = "ℹ️ MEB YYEGM Günlük Kontrol"
       icerik = (
           f"Bugün ({bugun_tarih}) saat 17.00 itibarıyla sayfa kontrol edildi,"
-          f" ancak duyuru bağlantısına ulaşılamadı.\n\nAdres: {URL}"
+          f" ancak duyuru formatında geçerli bir bağlantı bulunamadı.\n\nAdres: {URL}"
       )
       eposta_gonder(konu, icerik)
 
   except Exception as e:
     print(f"Hata: {e}")
-
 
 if __name__ == "__main__":
   duyurulari_kontrol_et()
