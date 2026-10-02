@@ -1,7 +1,7 @@
 import os
 import sys
 
-# 1. Aşama: Gerekli kütüphaneleri otomatik yükle (GitHub Actions için)
+# Kütüphaneleri kur
 print("Sistem hazırlanıyor, kütüphaneler kuruluyor...")
 os.system(f"{sys.executable} -m pip install -q selenium webdriver-manager beautifulsoup4")
 
@@ -25,7 +25,7 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 URL = "https://yyegm.meb.gov.tr/www/duyurular/kategori/2"
 
-# TEST İÇİN 16 YAPTIK (Çalıştığını görünce burayı 1 yapabilirsin)
+# TEST İÇİN 16 (Daha sonra otomasyon için 1 yapabilirsin)
 KONTROL_GUN_SAYISI = 16  
 # ===========================================
 
@@ -51,8 +51,6 @@ def duyurulari_kontrol_et():
   bugun_str = bugun.strftime("%d.%m.%Y")
   
   print("Görünmez tarayıcı (Headless Chrome) başlatılıyor...")
-  
-  # Görünmez (Headless) Chrome Ayarları
   chrome_options = Options()
   chrome_options.add_argument("--headless")
   chrome_options.add_argument("--no-sandbox")
@@ -66,12 +64,8 @@ def duyurulari_kontrol_et():
     
     print("MEB sayfasına bağlanılıyor...")
     driver.get(URL)
+    time.sleep(5)  # Tablonun yüklenmesi için bekle
     
-    # JavaScript tablosunun yüklenmesi için 5 saniye bekle! (KRİTİK NOKTA)
-    print("Sayfanın ve tabloların yüklenmesi bekleniyor...")
-    time.sleep(5)
-    
-    # Yüklenmiş tam sayfa kodunu al
     html_kaynagi = driver.page_source
     driver.quit()
   except Exception as e:
@@ -81,14 +75,12 @@ def duyurulari_kontrol_et():
   soup = BeautifulSoup(html_kaynagi, "html.parser")
   duyurular = []
   
-  # SADECE ve SADECE tablo satırlarını (tr) tarıyoruz
   for tr in soup.find_all("tr"):
     tds = tr.find_all("td")
     if len(tds) >= 2:
       tarih_metni = tds[0].get_text(strip=True)
-      
-      # İlk hücrede tarih var mı kontrol et
       match = re.search(r"(\d{2})[/.](\d{2})[/.](\d{4})", tarih_metni)
+      
       if match:
         tarih_str = f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
         baslik_etiketi = tds[1].find("a")
@@ -97,45 +89,42 @@ def duyurulari_kontrol_et():
           baslik = baslik_etiketi.get_text(strip=True)
           link = baslik_etiketi.get("href", "")
           
-          if "/icerik/" in link:  # Gerçek bir MEB duyurusu olduğunu teyit ediyoruz
+          if "/icerik/" in link:
             try:
               dt = datetime.strptime(tarih_str, "%d.%m.%Y")
               fark_gun = (bugun - dt).days
             except:
               fark_gun = 9999
             
-            duyurular.append({
-                "baslik": baslik,
-                "link": link,
-                "tarih_str": tarih_str,
-                "fark_gun": fark_gun
-            })
+            # Aynı duyuruyu listeye tekrar eklememek için
+            if not any(d['link'] == link for d in duyurular):
+              duyurular.append({
+                  "baslik": baslik,
+                  "link": link,
+                  "tarih_str": tarih_str,
+                  "fark_gun": fark_gun
+              })
 
-  yeni_duyuru_bulundu = False
-  
-  for d in duyurular:
-    if -2 <= d["fark_gun"] <= KONTROL_GUN_SAYISI:
-      tam_link = d["link"] if d["link"].startswith("http") else "https://yyegm.meb.gov.tr/" + d["link"].lstrip("/")
-      konu = "🚨 MEB KATEGORİ-2 YENİ DUYURU!"
-      icerik = (
-          f"Merhaba,\n\nMEB YYEGM Kategori-2 sayfasındaki TABLODA yeni bir duyuru yakalandı!\n\n"
-          f"📅 Tarih: {d['tarih_str']} (Sistem Farkı: {d['fark_gun']} gün)\n"
-          f"📌 Başlık: {d['baslik']}\n"
-          f"🔗 Link: {tam_link}\n\n"
-          f"Kontrol Edilen Zaman: {bugun_str}\n"
-      )
-      eposta_gonder(konu, icerik)
-      yeni_duyuru_bulundu = True
+  # Sadece yeni olanları filtrele
+  yeni_duyurular = [d for d in duyurular if -2 <= d["fark_gun"] <= KONTROL_GUN_SAYISI]
 
-  if not yeni_duyuru_bulundu:
-    # Duyuru bulamazsa botun okuduğu ilk satırı kanıt olarak gönderelim
-    ilk_kayit = duyurular[0] if duyurular else None
-    ek_bilgi = f"\n(Botun gördüğü son duyuru: {ilk_kayit['tarih_str']} - {ilk_kayit['baslik']})" if ilk_kayit else "\n(Tabloda veri okunamadı!)"
+  if yeni_duyurular:
+    konu = f"🚨 YENİ DUYURU EKLENDİ! ({len(yeni_duyurular)} Adet)"
+    icerik = f"Merhaba,\n\nMEB YYEGM Kategori-2 sayfasında {len(yeni_duyurular)} yeni duyuru bulundu:\n\n"
     
+    for i, d in enumerate(yeni_duyurular, 1):
+      tam_link = d["link"] if d["link"].startswith("http") else "https://yyegm.meb.gov.tr/" + d["link"].lstrip("/")
+      icerik += f"{i}) {d['baslik']}\n"
+      icerik += f"   📅 {d['tarih_str']} | 🔗 {tam_link}\n\n"
+      
+    icerik += f"Kontrol Edilen Zaman: {bugun_str}"
+    eposta_gonder(konu, icerik)
+    
+  else:
     konu = "ℹ️ MEB YYEGM Günlük Kontrol"
     icerik = (
-        f"Bugün ({bugun_str}) saat 17.00 itibarıyla görünmez tarayıcı ile tablo kontrol edildi.\n"
-        f"Son {KONTROL_GUN_SAYISI} gün içinde eklenmiş YENİ BİR DUYURU YOKTUR.\n{ek_bilgi}\n\n"
+        f"Bugün ({bugun_str}) saat 17.00 itibarıyla kontrol edildi.\n"
+        f"Son {KONTROL_GUN_SAYISI} gün içinde eklenmiş YENİ BİR DUYURU YOKTUR.\n\n"
         f"Adres: {URL}"
     )
     eposta_gonder(konu, icerik)
