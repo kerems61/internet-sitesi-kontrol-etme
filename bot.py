@@ -6,6 +6,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from bs4 import BeautifulSoup
 import requests
+import re
 
 # Ayarlar
 SENDER_EMAIL = "keremsoylu503@gmail.com"
@@ -34,7 +35,8 @@ def eposta_gonder(konu, icerik):
 
 
 def duyurulari_kontrol_et():
-  bugun_tarih = datetime.now().strftime("%d.%m.%Y")
+  bugun = datetime.now()
+  bugun_str = bugun.strftime("%d.%m.%Y")
 
   try:
     headers = {
@@ -51,63 +53,60 @@ def duyurulari_kontrol_et():
       return
 
     soup = BeautifulSoup(response.text, "html.parser")
+    yeni_duyuru_bulundu = False
 
-    en_son_baslik = ""
-    en_son_link = ""
-
-    # STRATEJİ 1: Doğrudan Duyuru Tablosunu Hedefle
-    tablo = soup.find("table")
-    if tablo:
-      for a in tablo.find_all("a"):
-        metin = a.get_text(strip=True)
-        link = a.get("href", "")
-        # Tablo içindeki 15 karakterden uzun ilk link kesinlikle güncel duyurudur
-        if len(metin) > 15:
-          en_son_baslik = metin
-          en_son_link = link
-          break
-
-    # STRATEJİ 2: Eğer tablo yoksa gelişmiş filtreleme (Logoyu kesin reddet)
-    if not en_son_baslik:
-      for a in soup.find_all("a"):
-        metin = a.get_text(strip=True)
-        link = a.get("href", "")
-
-        if not link or not metin:
-          continue
-
-        # LOGO VE ANA MENÜ ENGELLEYİCİ
-        if link == "https://www.meb.gov.tr" or "MİLLÎ EĞİTİM" in metin.upper() or "T.C." in metin.upper():
-          continue
+    # Sayfadaki tüm satırları (tr) geziyoruz
+    for tr in soup.find_all("tr"):
+      tds = tr.find_all("td")
+      
+      # Eğer satırda en az 2 hücre (Tarih ve Başlık) varsa
+      if len(tds) >= 2:
+        tarih_metni = tds[0].get_text(strip=True)
         
-        kara_liste = ["ANASAYFA", "İLETİŞİM", "MEVZUAT", "BAKANLIK", "GENEL MÜDÜRLÜK"]
-        if any(kelime in metin.upper() for kelime in kara_liste):
-          continue
+        # SADECE "17.09.2026" veya "17/09/2026" gibi tarih olan hücreleri kabul et
+        if re.match(r"\d{2}[/.]\d{2}[/.]\d{4}", tarih_metni):
+          
+          # Tarih formatını hesaplanabilir hale getir
+          tarih_temiz = tarih_metni.replace("/", ".")
+          try:
+            duyuru_tarihi = datetime.strptime(tarih_temiz, "%d.%m.%Y")
+          except ValueError:
+            continue
+          
+          # Bugün ile duyuru tarihi arasındaki gün farkını hesapla
+          fark_gun = (bugun - duyuru_tarihi).days
+          
+          # EĞER DUYURU SON 1 GÜN İÇİNDE YAYINLANMIŞSA:
+          if fark_gun <= 1 and fark_gun >= 0:
+            baslik_etiketi = tds[1].find("a")
+            
+            if baslik_etiketi:
+              baslik = baslik_etiketi.get_text(strip=True)
+              link = baslik_etiketi.get("href", "")
+              
+              if not link.startswith("http"):
+                link = "https://yyegm.meb.gov.tr/" + link.lstrip("/")
+                
+              konu = "🚨 YENİ DUYURU EKLENDİ!"
+              icerik = (
+                  f"Merhaba,\n\nMEB YYEGM sayfasında SON 1 GÜN İÇİNDE yeni bir duyuru yayınlandı:\n\n"
+                  f"📅 Tarih: {tarih_metni}\n"
+                  f"📌 Başlık: {baslik}\n"
+                  f"🔗 Link: {link}\n\n"
+                  f"Kontrol Edilen Zaman: {bugun_str}"
+              )
+              
+              # Şartı sağlayan her duyuru için ayrı ayrı mail atar
+              eposta_gonder(konu, icerik)
+              yeni_duyuru_bulundu = True
 
-        # Geriye kalan ve 25 karakterden uzun olan ilk link gerçek duyurudur
-        if len(metin) > 25:
-          en_son_baslik = metin
-          en_son_link = link
-          break
-
-    if en_son_baslik:
-      # Linki düzeltme (Eğer linkin başında https yoksa site adresini ekler)
-      if not en_son_link.startswith("http"):
-        en_son_link = "https://yyegm.meb.gov.tr/" + en_son_link.lstrip("/")
-
-      konu = "📢 MEB YYEGM: En Son Duyuru Bulundu!"
-      icerik = (
-          f"Merhaba,\n\nMEB YYEGM sayfasındaki gerçek güncel duyuru başarıyla çekildi:\n\n"
-          f"📌 Başlık:\n{en_son_baslik}\n\n"
-          f"🔗 Bağlantı: {en_son_link}\n\n"
-          f"Kontrol Edilen Zaman: {bugun_tarih}"
-      )
-      eposta_gonder(konu, icerik)
-    else:
+    # Eğer sayfa tarandı ve son 1 güne ait HİÇBİR duyuru bulunamadıysa:
+    if not yeni_duyuru_bulundu:
       konu = "ℹ️ MEB YYEGM Günlük Kontrol"
       icerik = (
-          f"Bugün ({bugun_tarih}) saat 17.00 itibarıyla sayfa kontrol edildi,"
-          f" ancak duyuru bağlantısına ulaşılamadı.\n\nAdres: {URL}"
+          f"Bugün ({bugun_str}) saat 17.00 itibarıyla sayfa kontrol edildi.\n"
+          f"Son 1 gün içinde yayınlanmış YENİ BİR DUYURU YOKTUR.\n\n"
+          f"Adres: {URL}"
       )
       eposta_gonder(konu, icerik)
 
