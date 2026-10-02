@@ -15,8 +15,8 @@ RECEIVER_EMAIL = "keremsoylu503@gmail.com"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 
-# TEST ETMEK İÇİN BURAYI 16 YAP. ÇALIŞTIĞINI GÖRÜNCE 1'E DÜŞÜR.
-KONTROL_GUN_SAYISI = 16  
+# OTOMASYON İÇİN 1 GÜN (Sadece son 1 gün içinde yeni duyuru varsa mail atar)
+KONTROL_GUN_SAYISI = 1  
 # ===========================================
 
 def eposta_gonder(konu, icerik):
@@ -43,9 +43,10 @@ def duyurulari_kontrol_et():
   
   duyurular = []
   
-  # 1. YÖNTEM: RSS Arka Kapısı (JS gerektirmez, doğrudan saf veriyi çeker)
+  # 1. YÖNTEM: RSS Arka Kapısı
   try:
     res = requests.get("https://yyegm.meb.gov.tr/www/rss.php", headers=headers, timeout=10)
+    res.encoding = 'utf-8'  # Türkçe karakter sorunu çözümü
     soup = BeautifulSoup(res.text, "html.parser")
     for item in soup.find_all("item"):
       baslik = item.find("title").get_text(strip=True) if item.find("title") else ""
@@ -56,14 +57,14 @@ def duyurulari_kontrol_et():
   except:
     pass
       
-  # 2. YÖNTEM: Anasayfa (RSS çalışmazsa, ana sayfadaki "Duyurular" sekmesini tara)
+  # 2. YÖNTEM: Anasayfa İçeriği
   try:
     res = requests.get("https://yyegm.meb.gov.tr/", headers=headers, timeout=10)
+    res.encoding = 'utf-8'  # Türkçe karakter sorunu çözümü
     soup = BeautifulSoup(res.text, "html.parser")
     for a in soup.find_all("a"):
       link = a.get("href", "")
       baslik = a.get_text(strip=True)
-      # MEB'de gerçek duyurular her zaman /icerik/ uzantısına sahiptir
       if "/icerik/" in link and len(baslik) > 15:
         parent = a.find_parent()
         tarih = parent.get_text(strip=True) if parent else ""
@@ -73,7 +74,6 @@ def duyurulari_kontrol_et():
       
   yeni_duyuru_bulundu = False
   gonderilen_linkler = set()
-  teshis_log = []
   
   for d in duyurular:
     baslik = d["baslik"]
@@ -84,21 +84,18 @@ def duyurulari_kontrol_et():
     if not link.startswith("http"):
       link = "https://yyegm.meb.gov.tr/" + link.lstrip("/")
         
-    # Aynı duyuruyu (hem RSS hem anasayfada varsa) 2 kez atmamak için engelleme
     if link in gonderilen_linkler:
       continue
         
     fark_gun = -1
     tarih_str = "Çözülemedi"
     
-    # Tarihi hesapla (RSS standardı RFC 822 formatı)
     try:
       dt = parsedate_to_datetime(tarih_metni)
       dt = dt.replace(tzinfo=None)
       tarih_str = dt.strftime("%d.%m.%Y")
       fark_gun = (bugun - dt).days
     except:
-      # Eğer RSS değilse, metin içindeki "17.09.2026" kalıbını bul
       match = re.search(r"(\d{2})[/.](\d{2})[/.](\d{4})", tarih_metni)
       if match:
         tarih_str = f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
@@ -108,32 +105,25 @@ def duyurulari_kontrol_et():
         except:
           pass
     
-    teshis_log.append(f"[{kaynak}] {baslik[:35]}... (Fark: {fark_gun} gün)")
-    
-    # BELİRLENEN GÜN ARALIĞINDA (Örn: 16 gün) DUYURU VARSA MAİL AT:
     if 0 <= fark_gun <= KONTROL_GUN_SAYISI:
       konu = "🚨 YENİ DUYURU EKLENDİ!"
       icerik = (
-          f"Merhaba,\n\nMEB YYEGM sayfasında SON {KONTROL_GUN_SAYISI} GÜN İÇİNDE yayınlanan bir duyuru yakalandı!\n\n"
-          f"📅 Tarih: {tarih_str} ({fark_gun} gün önce)\n"
+          f"Merhaba,\n\nMEB YYEGM sayfasında YENİ BİR DUYURU yayınlandı!\n\n"
+          f"📅 Tarih: {tarih_str}\n"
           f"📌 Başlık: {baslik}\n"
           f"🔗 Link: {link}\n\n"
           f"Kontrol Edilen Zaman: {bugun_str}\n"
-          f"Veri Kaynağı: {kaynak}"
       )
       eposta_gonder(konu, icerik)
       yeni_duyuru_bulundu = True
       gonderilen_linkler.add(link)
       
-  # EĞER HİÇ YENİ DUYURU YOKSA SADECE BİLGİ MAİLİ AT (TEST İÇİN LOGLARIYLA BİRLİKTE):
   if not yeni_duyuru_bulundu:
-    log_ozet = "\n".join(teshis_log[:5]) if teshis_log else "Hiçbir kaynaktan duyuru verisi alınamadı."
     konu = "ℹ️ MEB YYEGM Günlük Kontrol"
     icerik = (
         f"Bugün ({bugun_str}) saat 17.00 itibarıyla kontrol sağlandı.\n"
-        f"Son {KONTROL_GUN_SAYISI} gün içinde yayınlanmış YENİ BİR DUYURU YOKTUR.\n\n"
-        f"--- BOTUN ARKA KAPIDAN OKUDUĞU EN GÜNCEL KAYITLAR ---\n"
-        f"{log_ozet}\n"
+        f"Sayfaya eklenmiş YENİ BİR DUYURU YOKTUR.\n\n"
+        f"Adres: https://yyegm.meb.gov.tr/www/duyurular/kategori/2"
     )
     eposta_gonder(konu, icerik)
 
