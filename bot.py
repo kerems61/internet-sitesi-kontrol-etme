@@ -14,6 +14,7 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 URL = "https://yyegm.meb.gov.tr/www/duyurular/kategori/2"
 
+
 def eposta_gonder(konu, icerik):
   try:
     sifre = os.environ.get("GMAIL_SIFRE")
@@ -30,6 +31,7 @@ def eposta_gonder(konu, icerik):
     print("E-posta başarıyla gönderildi.")
   except Exception as e:
     print(f"E-posta gönderilirken hata oluştu: {e}")
+
 
 def duyurulari_kontrol_et():
   bugun_tarih = datetime.now().strftime("%d.%m.%Y")
@@ -58,16 +60,12 @@ def duyurulari_kontrol_et():
       metin = a.get_text(strip=True)
       link = a.get("href", "")
 
-      # İçi boş linkleri veya çok kısa anlamsız metinleri atla
-      if not link or len(metin) < 10:
-        continue
-
-      # SADECE URL'sinde "/icerik/" veya dosya (pdf vb.) geçen gerçek MEB duyurularını al
-      # Logolar, iletişim veya kategori menüleri otomatik elenmiş olur
-      if "/icerik/" in link.lower() or ".pdf" in link.lower() or "meb_iys_dosyalar" in link.lower():
+      # Sadece 40 karakterden uzun olan metinleri dikkate al
+      # Bu sayede Anasayfa, İletişim, Logolar gibi kısa bağlantılar otomatik elenir
+      if len(metin) > 40 and link:
         en_son_baslik = metin
         en_son_link = link
-        break  # İlk bulduğumuz (en üstteki) duyuruyu al ve aramayı bitir
+        break  # 40 karakterden uzun ilk bağlantı, tablodaki en güncel duyurudur!
 
     if en_son_baslik:
       if en_son_link.startswith("/"):
@@ -75,23 +73,26 @@ def duyurulari_kontrol_et():
       elif not en_son_link.startswith("http"):
         en_son_link = "https://yyegm.meb.gov.tr/" + en_son_link
 
-      konu = "📢 MEB YYEGM: En Son Duyuru"
+      konu = "📢 MEB YYEGM: Güncel Duyuru Kontrolü"
       icerik = (
-          f"Merhaba,\n\nMEB YYEGM duyuru sayfasındaki en son duyuru başarıyla"
-          f" yakalandı:\n\n📌 Duyuru Başlığı:\n{en_son_baslik}\n\n🔗 Bağlantı:"
-          f" {en_son_link}\n\nKontrol Edilen Zaman: {bugun_tarih}"
+          f"Merhaba,\n\nMEB YYEGM sayfasındaki en üst sırada yer alan duyuru:\n\n"
+          f"📌 Başlık:\n{en_son_baslik}\n\n"
+          f"🔗 Bağlantı: {en_son_link}\n\n"
+          f"Kontrol Edilen Zaman: {bugun_tarih}\n\n"
+          f"(Not: Her gün saat 17:00'de gelen bu maildeki başlık, bir önceki günden farklıysa sayfaya yeni bir duyuru eklenmiş demektir.)"
       )
       eposta_gonder(konu, icerik)
     else:
       konu = "ℹ️ MEB YYEGM Günlük Kontrol"
       icerik = (
           f"Bugün ({bugun_tarih}) saat 17.00 itibarıyla sayfa kontrol edildi,"
-          f" ancak duyuru formatında geçerli bir bağlantı bulunamadı.\n\nAdres: {URL}"
+          f" ancak 40 karakterden uzun bir duyuru metni bulunamadı.\n\nAdres: {URL}"
       )
       eposta_gonder(konu, icerik)
 
   except Exception as e:
     print(f"Hata: {e}")
+
 
 if __name__ == "__main__":
   duyurulari_kontrol_et()
