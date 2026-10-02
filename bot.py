@@ -1,11 +1,21 @@
-from datetime import datetime
 import os
+import sys
+
+# 1. Aşama: Gerekli kütüphaneleri otomatik yükle (GitHub Actions için)
+print("Sistem hazırlanıyor, kütüphaneler kuruluyor...")
+os.system(f"{sys.executable} -m pip install -q selenium webdriver-manager beautifulsoup4")
+
+from datetime import datetime
 import smtplib
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from bs4 import BeautifulSoup
-import requests
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
+import time
 import re
 
 # ================= AYARLAR =================
@@ -15,7 +25,7 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 URL = "https://yyegm.meb.gov.tr/www/duyurular/kategori/2"
 
-# TEST İÇİN 16 GÜN YAPTIK
+# TEST İÇİN 16 YAPTIK (Çalıştığını görünce burayı 1 yapabilirsin)
 KONTROL_GUN_SAYISI = 16  
 # ===========================================
 
@@ -39,63 +49,77 @@ def eposta_gonder(konu, icerik):
 def duyurulari_kontrol_et():
   bugun = datetime.now()
   bugun_str = bugun.strftime("%d.%m.%Y")
-  headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"}
+  
+  print("Görünmez tarayıcı (Headless Chrome) başlatılıyor...")
+  
+  # Görünmez (Headless) Chrome Ayarları
+  chrome_options = Options()
+  chrome_options.add_argument("--headless")
+  chrome_options.add_argument("--no-sandbox")
+  chrome_options.add_argument("--disable-dev-shm-usage")
+  chrome_options.add_argument("--window-size=1920,1080")
+  chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
   
   try:
-    res = requests.get(URL, headers=headers, timeout=15)
-    res.encoding = 'utf-8'
-    soup = BeautifulSoup(res.text, "html.parser")
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    
+    print("MEB sayfasına bağlanılıyor...")
+    driver.get(URL)
+    
+    # JavaScript tablosunun yüklenmesi için 5 saniye bekle! (KRİTİK NOKTA)
+    print("Sayfanın ve tabloların yüklenmesi bekleniyor...")
+    time.sleep(5)
+    
+    # Yüklenmiş tam sayfa kodunu al
+    html_kaynagi = driver.page_source
+    driver.quit()
   except Exception as e:
-    print("Siteye erişilemedi:", e)
+    print("Tarayıcı çalıştırılamadı:", e)
     return
 
+  soup = BeautifulSoup(html_kaynagi, "html.parser")
   duyurular = []
   
-  # Kategori sayfasındaki tüm linkleri tarıyoruz
-  for a in soup.find_all("a"):
-    link = a.get("href", "")
-    baslik = a.get_text(strip=True)
-    
-    # MEB duyuruları her zaman /icerik/ uzantısına sahiptir ve başlıkları uzundur
-    if "/icerik/" in link and len(baslik) > 15:
-      # Linkin bulunduğu tablo satırını (tr) bulup içindeki tarihi çekiyoruz
-      parent = a.find_parent("tr")
-      if not parent:
-          parent = a.find_parent("div")
-          
-      parent_text = parent.get_text(strip=True) if parent else ""
-      match = re.search(r"(\d{2})[/.](\d{2})[/.](\d{4})", parent_text)
+  # SADECE ve SADECE tablo satırlarını (tr) tarıyoruz
+  for tr in soup.find_all("tr"):
+    tds = tr.find_all("td")
+    if len(tds) >= 2:
+      tarih_metni = tds[0].get_text(strip=True)
       
-      tarih_str = ""
-      fark_gun = 9999
-      
+      # İlk hücrede tarih var mı kontrol et
+      match = re.search(r"(\d{2})[/.](\d{2})[/.](\d{4})", tarih_metni)
       if match:
         tarih_str = f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
-        try:
-          dt = datetime.strptime(tarih_str, "%d.%m.%Y")
-          fark_gun = (bugun - dt).days
-        except:
-          pass
+        baslik_etiketi = tds[1].find("a")
+        
+        if baslik_etiketi:
+          baslik = baslik_etiketi.get_text(strip=True)
+          link = baslik_etiketi.get("href", "")
           
-      # Aynı linki tekrar eklememek için kontrol
-      if not any(d['link'] == link for d in duyurular):
-        duyurular.append({
-            "baslik": baslik,
-            "link": link,
-            "tarih_str": tarih_str,
-            "fark_gun": fark_gun
-        })
+          if "/icerik/" in link:  # Gerçek bir MEB duyurusu olduğunu teyit ediyoruz
+            try:
+              dt = datetime.strptime(tarih_str, "%d.%m.%Y")
+              fark_gun = (bugun - dt).days
+            except:
+              fark_gun = 9999
+            
+            duyurular.append({
+                "baslik": baslik,
+                "link": link,
+                "tarih_str": tarih_str,
+                "fark_gun": fark_gun
+            })
 
   yeni_duyuru_bulundu = False
   
   for d in duyurular:
-    # Saat farklarından doğabilecek -1 veya -2 gün durumlarını da kapsar
     if -2 <= d["fark_gun"] <= KONTROL_GUN_SAYISI:
       tam_link = d["link"] if d["link"].startswith("http") else "https://yyegm.meb.gov.tr/" + d["link"].lstrip("/")
-      konu = "🚨 YENİ DUYURU EKLENDİ!"
+      konu = "🚨 MEB KATEGORİ-2 YENİ DUYURU!"
       icerik = (
-          f"Merhaba,\n\nMEB YYEGM Kategori-2 sayfasında YENİ BİR DUYURU yayınlandı!\n\n"
-          f"📅 Tarih: {d['tarih_str']}\n"
+          f"Merhaba,\n\nMEB YYEGM Kategori-2 sayfasındaki TABLODA yeni bir duyuru yakalandı!\n\n"
+          f"📅 Tarih: {d['tarih_str']} (Sistem Farkı: {d['fark_gun']} gün)\n"
           f"📌 Başlık: {d['baslik']}\n"
           f"🔗 Link: {tam_link}\n\n"
           f"Kontrol Edilen Zaman: {bugun_str}\n"
@@ -104,10 +128,14 @@ def duyurulari_kontrol_et():
       yeni_duyuru_bulundu = True
 
   if not yeni_duyuru_bulundu:
+    # Duyuru bulamazsa botun okuduğu ilk satırı kanıt olarak gönderelim
+    ilk_kayit = duyurular[0] if duyurular else None
+    ek_bilgi = f"\n(Botun gördüğü son duyuru: {ilk_kayit['tarih_str']} - {ilk_kayit['baslik']})" if ilk_kayit else "\n(Tabloda veri okunamadı!)"
+    
     konu = "ℹ️ MEB YYEGM Günlük Kontrol"
     icerik = (
-        f"Bugün ({bugun_str}) saat 17.00 itibarıyla sadece Kategori-2 sayfası kontrol edildi.\n"
-        f"Son {KONTROL_GUN_SAYISI} gün içinde eklenmiş YENİ BİR DUYURU YOKTUR.\n\n"
+        f"Bugün ({bugun_str}) saat 17.00 itibarıyla görünmez tarayıcı ile tablo kontrol edildi.\n"
+        f"Son {KONTROL_GUN_SAYISI} gün içinde eklenmiş YENİ BİR DUYURU YOKTUR.\n{ek_bilgi}\n\n"
         f"Adres: {URL}"
     )
     eposta_gonder(konu, icerik)
