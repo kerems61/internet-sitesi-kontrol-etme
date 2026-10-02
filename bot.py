@@ -55,8 +55,7 @@ def duyurulari_kontrol_et():
     en_son_baslik = ""
     en_son_link = ""
 
-    # Sayfadaki tüm linkleri tarayıp sadece menü/iletişim dışındaki uzun duyuru başlıklarını alalım
-     haric_listesi = [
+    haric_listesi = [
         "Anasayfa",
         "Bakanlık",
         "Mevzuat",
@@ -72,7 +71,6 @@ def duyurulari_kontrol_et():
       metin = a.get_text(strip=True)
       link = a.get("href", "")
 
-      # Eğer metin 25 karakterden uzunsa ve genel site menü başlıklarından biri değilse en güncel duyurudur
       if len(metin) > 25 and not any(haric in metin for haric in haric_listesi):
         en_son_baslik = metin
         en_son_link = link
