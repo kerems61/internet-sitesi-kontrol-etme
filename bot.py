@@ -55,23 +55,47 @@ def duyurulari_kontrol_et():
     en_son_baslik = ""
     en_son_link = ""
 
-    # Sayfadaki tüm linkleri (a etiketlerini) tarayalım
+    # Sayfadaki tablo benzeri listelemeleri veya tüm bağlantıları tarayıp
+    # en üstteki geçerli duyuruyu bulalım. Menü bağlantılarını filtreliyoruz.
+    haric_kelimeler = [
+        "Anasayfa",
+        "Bakanlık",
+        "Mevzuat",
+        "İletişim",
+        "Genel Müdürlük",
+        "RSS",
+        "S.S.S",
+        "Programı",
+        "Eğitim",
+        "Dersi",
+    ]
+
     for a in soup.find_all("a"):
       metin = a.get_text(strip=True)
       link = a.get("href", "")
 
-      # Uzun ve duyuru olabilecek nitelikteki metinleri seçiyoruz (Anasayfa, menü vb. hariç)
-      if (
-          len(metin) > 30
-          and "Anasayfa" not in metin
-          and "Bakanlık" not in metin
-          and "Mevzuat" not in metin
-          and "İletişim" not in metin
-          and "Genel Müdürlük" not in metin
-      ):
-        en_son_baslik = metin
-        en_son_link = link
-        break  # İlk bulduğumuz en güncel duyurudur
+      # Eğer metin anlamlı bir uzunluktaysa ve ana menü kelimelerini içermiyorsa duyurudur
+      if len(metin) > 15:
+        is_menu = False
+        for kelime in haric_kelimeler:
+          # Sadece tam menü başlıklarını elemek için
+          if metin == kelime:
+            is_menu = True
+            break
+
+        if not is_menu and "www/duyuru" in link or len(metin) > 30:
+          en_son_baslik = metin
+          en_son_link = link
+          break
+
+    # Eğer yukarıdakilerle bulunamadıysa, sayfadaki tablo veya liste elemanındaki ilk uzun metni alalım
+    if not en_son_baslik:
+      for a in soup.find_all("a"):
+        metin = a.get_text(strip=True)
+        if len(metin) > 30:  # Duyuru başlıkları genelde uzundur
+          en_son_baslik = metin
+          en_son_link = a.get("href", "")
+          break
 
     if en_son_baslik:
       if en_son_link.startswith("/"):
