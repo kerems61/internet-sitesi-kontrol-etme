@@ -25,7 +25,7 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 URL = "https://yyegm.meb.gov.tr/www/duyurular/kategori/2"
 
-# TEST İÇİN 16 (Daha sonra otomasyon için 1 yapabilirsin)
+# TEST İÇİN 30. (Çalıştığını gördükten sonra otomasyon için 1 yapmayı unutma!)
 KONTROL_GUN_SAYISI = 30  
 # ===========================================
 
@@ -89,7 +89,8 @@ def duyurulari_kontrol_et():
           baslik = baslik_etiketi.get_text(strip=True)
           link = baslik_etiketi.get("href", "")
           
-          if "/icerik/" in link:
+          # "/icerik/" kısıtlamasını kaldırdık! Tabloda linki olan her şey duyurudur.
+          if link:
             try:
               dt = datetime.strptime(tarih_str, "%d.%m.%Y")
               fark_gun = (bugun - dt).days
@@ -105,12 +106,12 @@ def duyurulari_kontrol_et():
                   "fark_gun": fark_gun
               })
 
-  # Sadece yeni olanları filtrele
+  # Sadece belirlediğimiz gün aralığında olanları filtrele
   yeni_duyurular = [d for d in duyurular if -2 <= d["fark_gun"] <= KONTROL_GUN_SAYISI]
 
   if yeni_duyurular:
     konu = f"🚨 YENİ DUYURU EKLENDİ! ({len(yeni_duyurular)} Adet)"
-    icerik = f"Merhaba,\n\nMEB YYEGM Kategori-2 sayfasında {len(yeni_duyurular)} yeni duyuru bulundu:\n\n"
+    icerik = f"Merhaba,\n\nMEB YYEGM Kategori-2 sayfasında {len(yeni_duyurular)} duyuru bulundu:\n\n"
     
     for i, d in enumerate(yeni_duyurular, 1):
       tam_link = d["link"] if d["link"].startswith("http") else "https://yyegm.meb.gov.tr/" + d["link"].lstrip("/")
