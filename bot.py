@@ -15,8 +15,8 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 URL = "https://yyegm.meb.gov.tr/www/duyurular/kategori/2"
 
-# SADECE SON 1 GÜN İÇİNDE DUYURU VARSA HABER VERİR
-KONTROL_GUN_SAYISI = 1  
+# TEST İÇİN 16 GÜN YAPTIK
+KONTROL_GUN_SAYISI = 16  
 # ===========================================
 
 def eposta_gonder(konu, icerik):
