@@ -55,15 +55,25 @@ def duyurulari_kontrol_et():
     en_son_baslik = ""
     en_son_link = ""
 
-    # Sayfadaki tüm linkleri tarayıp sadece duyuru içeren adresleri filtreleyelim
+    # Sayfadaki tüm linkleri tarayıp sadece menü/iletişim dışındaki uzun duyuru başlıklarını alalım
+     haric_listesi = [
+        "Anasayfa",
+        "Bakanlık",
+        "Mevzuat",
+        "İletişim",
+        "Genel Müdürlük",
+        "RSS",
+        "S.S.S",
+        "Programı",
+        "Yurt Dışı Eğitim",
+    ]
+
     for a in soup.find_all("a"):
       metin = a.get_text(strip=True)
       link = a.get("href", "")
 
-      # Bağlantı adresinde duyuru veya detay geçiyorsa ve metin yeterince uzunsa bu kesinlikle gerçek bir duyurudur
-      if link and (
-          "duyuru" in link.lower() or "detay" in link.lower()
-      ) and len(metin) > 15:
+      # Eğer metin 25 karakterden uzunsa ve genel site menü başlıklarından biri değilse en güncel duyurudur
+      if len(metin) > 25 and not any(haric in metin for haric in haric_listesi):
         en_son_baslik = metin
         en_son_link = link
         break
