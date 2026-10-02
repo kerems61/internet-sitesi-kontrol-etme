@@ -26,7 +26,7 @@ SMTP_PORT = 587
 URL = "https://yyegm.meb.gov.tr/www/duyurular/kategori/2"
 
 # TEST İÇİN 16 (Daha sonra otomasyon için 1 yapabilirsin)
-KONTROL_GUN_SAYISI = 16  
+KONTROL_GUN_SAYISI = 30  
 # ===========================================
 
 def eposta_gonder(konu, icerik):
