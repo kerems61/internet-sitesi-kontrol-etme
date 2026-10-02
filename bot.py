@@ -4,6 +4,7 @@ import smtplib
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import parsedate_to_datetime
 from bs4 import BeautifulSoup
 import requests
 import re
@@ -13,9 +14,8 @@ SENDER_EMAIL = "keremsoylu503@gmail.com"
 RECEIVER_EMAIL = "keremsoylu503@gmail.com"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
-URL = "https://yyegm.meb.gov.tr/www/duyurular/kategori/2"
 
-# TEST İÇİN 16. (Çalıştığını görünce burayı 1 yapabilirsin)
+# TEST ETMEK İÇİN BURAYI 16 YAP. ÇALIŞTIĞINI GÖRÜNCE 1'E DÜŞÜR.
 KONTROL_GUN_SAYISI = 16  
 # ===========================================
 
@@ -39,91 +39,103 @@ def eposta_gonder(konu, icerik):
 def duyurulari_kontrol_et():
   bugun = datetime.now()
   bugun_str = bugun.strftime("%d.%m.%Y")
-
+  headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36"}
+  
+  duyurular = []
+  
+  # 1. YÖNTEM: RSS Arka Kapısı (JS gerektirmez, doğrudan saf veriyi çeker)
   try:
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
-            " like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-    response = requests.get(URL, headers=headers, timeout=15)
-    response.encoding = "utf-8"
-
-    if response.status_code != 200:
-      print("Siteye erişilemedi.")
-      return
-
-    soup = BeautifulSoup(response.text, "html.parser")
-    yeni_duyuru_bulundu = False
-    teshis_listesi = []
-
-    # Yanlışlıkla menüleri almamak için kara liste
-    kara_liste = ["ANASAYFA", "İLETİŞİM", "MEVZUAT", "BAKANLIK", "GENEL MÜDÜRLÜK", "YURT DIŞI", "HİZMETLER"]
-
-    # Sayfadaki tüm linkleri tarıyoruz
+    res = requests.get("https://yyegm.meb.gov.tr/www/rss.php", headers=headers, timeout=10)
+    soup = BeautifulSoup(res.text, "html.parser")
+    for item in soup.find_all("item"):
+      baslik = item.find("title").get_text(strip=True) if item.find("title") else ""
+      link = item.find("link").get_text(strip=True) if item.find("link") else ""
+      tarih = item.find("pubdate").get_text(strip=True) if item.find("pubdate") else ""
+      if baslik and link:
+        duyurular.append({"baslik": baslik, "link": link, "tarih_metni": tarih, "kaynak": "RSS Verisi"})
+  except:
+    pass
+      
+  # 2. YÖNTEM: Anasayfa (RSS çalışmazsa, ana sayfadaki "Duyurular" sekmesini tara)
+  try:
+    res = requests.get("https://yyegm.meb.gov.tr/", headers=headers, timeout=10)
+    soup = BeautifulSoup(res.text, "html.parser")
     for a in soup.find_all("a"):
-      metin = a.get_text(strip=True)
       link = a.get("href", "")
-
-      # Eğer 25 karakterden uzunsa ve menü değilse kesinlikle duyurudur!
-      if len(metin) > 25 and not any(k in metin.upper() for k in kara_liste):
+      baslik = a.get_text(strip=True)
+      # MEB'de gerçek duyurular her zaman /icerik/ uzantısına sahiptir
+      if "/icerik/" in link and len(baslik) > 15:
+        parent = a.find_parent()
+        tarih = parent.get_text(strip=True) if parent else ""
+        duyurular.append({"baslik": baslik, "link": link, "tarih_metni": tarih, "kaynak": "Anasayfa İçeriği"})
+  except:
+    pass
+      
+  yeni_duyuru_bulundu = False
+  gonderilen_linkler = set()
+  teshis_log = []
+  
+  for d in duyurular:
+    baslik = d["baslik"]
+    link = d["link"]
+    tarih_metni = d["tarih_metni"]
+    kaynak = d["kaynak"]
+    
+    if not link.startswith("http"):
+      link = "https://yyegm.meb.gov.tr/" + link.lstrip("/")
         
-        # Duyurunun etrafındaki (parent) HTML yapısını alıp tarihi arıyoruz
-        parent = a.find_parent("tr")
-        if not parent:
-            parent = a.find_parent("div")
+    # Aynı duyuruyu (hem RSS hem anasayfada varsa) 2 kez atmamak için engelleme
+    if link in gonderilen_linkler:
+      continue
         
-        parent_text = parent.get_text(strip=True) if parent else metin
-        
-        # Etrafındaki metnin içinden tarihi (\d{2}/\d{2}/\d{4}) cımbızla çekiyoruz
-        tarih_eslesme = re.search(r"(\d{2}[/.]\d{2}[/.]\d{4})", parent_text)
-        
-        tarih_str = "Tarih Bulunamadı"
-        fark_gun = -1
-        
-        if tarih_eslesme:
-          tarih_str = tarih_eslesme.group(1).replace("/", ".")
-          try:
-            duyuru_tarihi = datetime.strptime(tarih_str, "%d.%m.%Y")
-            fark_gun = (bugun - duyuru_tarihi).days
-          except ValueError:
-            pass
-            
-        # Teşhis raporu için botun bulduğu duyuruyu kaydediyoruz
-        teshis_listesi.append(f"- {metin[:45]}... (Tarih: {tarih_str}, Fark: {fark_gun} gün)")
-
-        # Eğer duyuru bizim belirlediğimiz gün aralığındaysa (0 ile 16 arası) MAİL AT!
-        if 0 <= fark_gun <= KONTROL_GUN_SAYISI:
-          if not link.startswith("http"):
-            link = "https://yyegm.meb.gov.tr/" + link.lstrip("/")
-            
-          konu = "🚨 YENİ DUYURU EKLENDİ!"
-          icerik = (
-              f"Merhaba,\n\nMEB YYEGM sayfasında SON {KONTROL_GUN_SAYISI} GÜN İÇİNDE yayınlanan bir duyuru bulundu:\n\n"
-              f"📅 Tarih: {tarih_str} ({fark_gun} gün önce)\n"
-              f"📌 Başlık: {metin}\n"
-              f"🔗 Link: {link}\n\n"
-              f"Kontrol Edilen Zaman: {bugun_str}"
-          )
-          eposta_gonder(konu, icerik)
-          yeni_duyuru_bulundu = True
-
-    # Eğer şartları sağlayan yeni bir şey YOKSA, botun ne gördüğünü raporla:
-    if not yeni_duyuru_bulundu:
-      en_son_3 = "\n".join(teshis_listesi[:3]) if teshis_listesi else "Listede duyuru metni algılanamadı."
-      konu = "ℹ️ MEB YYEGM Günlük Kontrol (Teşhis Raporlu)"
+    fark_gun = -1
+    tarih_str = "Çözülemedi"
+    
+    # Tarihi hesapla (RSS standardı RFC 822 formatı)
+    try:
+      dt = parsedate_to_datetime(tarih_metni)
+      dt = dt.replace(tzinfo=None)
+      tarih_str = dt.strftime("%d.%m.%Y")
+      fark_gun = (bugun - dt).days
+    except:
+      # Eğer RSS değilse, metin içindeki "17.09.2026" kalıbını bul
+      match = re.search(r"(\d{2})[/.](\d{2})[/.](\d{4})", tarih_metni)
+      if match:
+        tarih_str = f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
+        try:
+          dt = datetime.strptime(tarih_str, "%d.%m.%Y")
+          fark_gun = (bugun - dt).days
+        except:
+          pass
+    
+    teshis_log.append(f"[{kaynak}] {baslik[:35]}... (Fark: {fark_gun} gün)")
+    
+    # BELİRLENEN GÜN ARALIĞINDA (Örn: 16 gün) DUYURU VARSA MAİL AT:
+    if 0 <= fark_gun <= KONTROL_GUN_SAYISI:
+      konu = "🚨 YENİ DUYURU EKLENDİ!"
       icerik = (
-          f"Bugün ({bugun_str}) saat 17.00 itibarıyla sayfa kontrol edildi.\n"
-          f"Son {KONTROL_GUN_SAYISI} gün içinde yayınlanmış YENİ BİR DUYURU YOKTUR.\n\n"
-          f"--- BOTUN SİTEDE GÖRDÜĞÜ EN SON DUYURULAR ---\n"
-          f"{en_son_3}\n\n"
-          f"Adres: {URL}"
+          f"Merhaba,\n\nMEB YYEGM sayfasında SON {KONTROL_GUN_SAYISI} GÜN İÇİNDE yayınlanan bir duyuru yakalandı!\n\n"
+          f"📅 Tarih: {tarih_str} ({fark_gun} gün önce)\n"
+          f"📌 Başlık: {baslik}\n"
+          f"🔗 Link: {link}\n\n"
+          f"Kontrol Edilen Zaman: {bugun_str}\n"
+          f"Veri Kaynağı: {kaynak}"
       )
       eposta_gonder(konu, icerik)
-
-  except Exception as e:
-    print(f"Hata: {e}")
+      yeni_duyuru_bulundu = True
+      gonderilen_linkler.add(link)
+      
+  # EĞER HİÇ YENİ DUYURU YOKSA SADECE BİLGİ MAİLİ AT (TEST İÇİN LOGLARIYLA BİRLİKTE):
+  if not yeni_duyuru_bulundu:
+    log_ozet = "\n".join(teshis_log[:5]) if teshis_log else "Hiçbir kaynaktan duyuru verisi alınamadı."
+    konu = "ℹ️ MEB YYEGM Günlük Kontrol"
+    icerik = (
+        f"Bugün ({bugun_str}) saat 17.00 itibarıyla kontrol sağlandı.\n"
+        f"Son {KONTROL_GUN_SAYISI} gün içinde yayınlanmış YENİ BİR DUYURU YOKTUR.\n\n"
+        f"--- BOTUN ARKA KAPIDAN OKUDUĞU EN GÜNCEL KAYITLAR ---\n"
+        f"{log_ozet}\n"
+    )
+    eposta_gonder(konu, icerik)
 
 if __name__ == "__main__":
   duyurulari_kontrol_et()
