@@ -37,17 +37,17 @@ def duyurulari_kontrol_et():
   bugun_tarih = datetime.now().strftime("%d.%m.%Y")
 
   try:
-    # MEB güvenlik duvarını aşmak için gerçek bir tarayıcı gibi davranıyoruz
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,"
+            " like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
     }
-    response = requests.get(URL, headers=headers, timeout=20)
+    response = requests.get(URL, headers=headers, timeout=15)
     response.encoding = "utf-8"
 
     if response.status_code != 200:
-      print(f"Siteye erişilemedi. Hata Kodu: {response.status_code}")
+      print("Siteye erişilemedi.")
       return
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -55,55 +55,59 @@ def duyurulari_kontrol_et():
     en_son_baslik = ""
     en_son_link = ""
 
-    # Botun menü linklerine takılmaması için kara liste
-    kara_liste = [
-        "anasayfa", "bakanlık", "mevzuat", "iletişim", "müdürlük", 
-        "hizmetler", "s.s.s", "eğitim", "mebbis", "e-okul", 
-        "hakkımızda", "personel", "harita", "rss", "türk kültürü"
-    ]
+    # STRATEJİ 1: Doğrudan Duyuru Tablosunu Hedefle
+    tablo = soup.find("table")
+    if tablo:
+      for a in tablo.find_all("a"):
+        metin = a.get_text(strip=True)
+        link = a.get("href", "")
+        # Tablo içindeki 15 karakterden uzun ilk link kesinlikle güncel duyurudur
+        if len(metin) > 15:
+          en_son_baslik = metin
+          en_son_link = link
+          break
 
-    # Sayfadaki tüm linkleri tarıyoruz
-    for a in soup.find_all("a"):
-      metin = a.get_text(strip=True)
-      link = a.get("href", "")
+    # STRATEJİ 2: Eğer tablo yoksa gelişmiş filtreleme (Logoyu kesin reddet)
+    if not en_son_baslik:
+      for a in soup.find_all("a"):
+        metin = a.get_text(strip=True)
+        link = a.get("href", "")
 
-      # Eğer metin 20 karakterden uzunsa ve kara listedeki kelimeleri içermiyorsa bu gerçek duyurudur!
-      if len(metin) > 20 and link and link != "#":
-        menuye_ait_mi = any(kelime in metin.lower() for kelime in kara_liste)
+        if not link or not metin:
+          continue
+
+        # LOGO VE ANA MENÜ ENGELLEYİCİ
+        if link == "https://www.meb.gov.tr" or "MİLLÎ EĞİTİM" in metin.upper() or "T.C." in metin.upper():
+          continue
         
-        if not menuye_ait_mi:
+        kara_liste = ["ANASAYFA", "İLETİŞİM", "MEVZUAT", "BAKANLIK", "GENEL MÜDÜRLÜK"]
+        if any(kelime in metin.upper() for kelime in kara_liste):
+          continue
+
+        # Geriye kalan ve 25 karakterden uzun olan ilk link gerçek duyurudur
+        if len(metin) > 25:
           en_son_baslik = metin
           en_son_link = link
           break
 
     if en_son_baslik:
-      if en_son_link.startswith("/"):
-        en_son_link = "https://yyegm.meb.gov.tr" + en_son_link
-      elif not en_son_link.startswith("http"):
-        en_son_link = "https://yyegm.meb.gov.tr/" + en_son_link
+      # Linki düzeltme (Eğer linkin başında https yoksa site adresini ekler)
+      if not en_son_link.startswith("http"):
+        en_son_link = "https://yyegm.meb.gov.tr/" + en_son_link.lstrip("/")
 
       konu = "📢 MEB YYEGM: En Son Duyuru Bulundu!"
       icerik = (
-          f"Merhaba,\n\nMEB YYEGM sayfasındaki güncel duyuru başarıyla çekildi:\n\n"
+          f"Merhaba,\n\nMEB YYEGM sayfasındaki gerçek güncel duyuru başarıyla çekildi:\n\n"
           f"📌 Başlık:\n{en_son_baslik}\n\n"
           f"🔗 Bağlantı: {en_son_link}\n\n"
           f"Kontrol Edilen Zaman: {bugun_tarih}"
       )
       eposta_gonder(konu, icerik)
     else:
-      # EĞER BULAMAZSA BOTUN NE GÖRDÜĞÜNÜ BİZE MAİL ATACAK
-      sayfa_basligi = soup.title.string if soup.title else "Başlık Bulunamadı"
-      gorulen_metin = soup.get_text(strip=True)[:300] # Sayfadaki ilk 300 karakter
-      
-      konu = "⚠ MEB YYEGM: Duyuru Bulunamadı (Teşhis Raporu)"
+      konu = "ℹ️ MEB YYEGM Günlük Kontrol"
       icerik = (
-          f"Bugün ({bugun_tarih}) sayfa kontrol edildi ancak geçerli duyuru bulunamadı.\n\n"
-          f"--- BOTUN GÖRDÜĞÜ SAYFA BİLGİLERİ ---\n"
-          f"Sekme Başlığı: {sayfa_basligi}\n"
-          f"Sayfadaki İlk Yazılar: {gorulen_metin}...\n\n"
-          f"Not: Eğer yukarıdaki yazılarda 'Cloudflare', 'Güvenlik', veya 'Lütfen Bekleyin' yazıyorsa MEB botu engelliyordur. "
-          f"Eğer sayfanın normal başlığı yazıyorsa tablo gizlidir.\n"
-          f"Adres: {URL}"
+          f"Bugün ({bugun_tarih}) saat 17.00 itibarıyla sayfa kontrol edildi,"
+          f" ancak duyuru bağlantısına ulaşılamadı.\n\nAdres: {URL}"
       )
       eposta_gonder(konu, icerik)
 
