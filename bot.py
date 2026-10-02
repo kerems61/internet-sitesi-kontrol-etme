@@ -8,13 +8,16 @@ from bs4 import BeautifulSoup
 import requests
 import re
 
-# Ayarlar
+# ================= AYARLAR =================
 SENDER_EMAIL = "keremsoylu503@gmail.com"
 RECEIVER_EMAIL = "keremsoylu503@gmail.com"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 URL = "https://yyegm.meb.gov.tr/www/duyurular/kategori/2"
 
+# TEST İÇİN BURAYI 16 YAPABİLİRSİN. (Normalde 1 kalmalı)
+KONTROL_GUN_SAYISI = 16  
+# ===========================================
 
 def eposta_gonder(konu, icerik):
   try:
@@ -32,7 +35,6 @@ def eposta_gonder(konu, icerik):
     print("E-posta başarıyla gönderildi.")
   except Exception as e:
     print(f"E-posta gönderilirken hata oluştu: {e}")
-
 
 def duyurulari_kontrol_et():
   bugun = datetime.now()
@@ -59,25 +61,26 @@ def duyurulari_kontrol_et():
     for tr in soup.find_all("tr"):
       tds = tr.find_all("td")
       
-      # Eğer satırda en az 2 hücre (Tarih ve Başlık) varsa
       if len(tds) >= 2:
         tarih_metni = tds[0].get_text(strip=True)
         
-        # SADECE "17.09.2026" veya "17/09/2026" gibi tarih olan hücreleri kabul et
-        if re.match(r"\d{2}[/.]\d{2}[/.]\d{4}", tarih_metni):
+        # re.search ile metnin içinden sadece tarihi cımbızla çekiyoruz (boşluklara takılmamak için)
+        tarih_eslesme = re.search(r"\d{2}[/.]\d{2}[/.]\d{4}", tarih_metni)
+        
+        if tarih_eslesme:
+          # Bulunan tarihi güvenli bir şekilde alıp noktalı formata çeviriyoruz
+          temiz_tarih_str = tarih_eslesme.group(0).replace("/", ".")
           
-          # Tarih formatını hesaplanabilir hale getir
-          tarih_temiz = tarih_metni.replace("/", ".")
           try:
-            duyuru_tarihi = datetime.strptime(tarih_temiz, "%d.%m.%Y")
+            duyuru_tarihi = datetime.strptime(temiz_tarih_str, "%d.%m.%Y")
           except ValueError:
             continue
           
-          # Bugün ile duyuru tarihi arasındaki gün farkını hesapla
+          # Gün farkını hesaplıyoruz
           fark_gun = (bugun - duyuru_tarihi).days
           
-          # EĞER DUYURU SON 1 GÜN İÇİNDE YAYINLANMIŞSA:
-          if fark_gun <= 30 and fark_gun >= 0:
+          # EĞER DUYURU BELİRTİLEN GÜN ARALIĞINDAYSA:
+          if 0 <= fark_gun <= KONTROL_GUN_SAYISI:
             baslik_etiketi = tds[1].find("a")
             
             if baslik_etiketi:
@@ -89,30 +92,28 @@ def duyurulari_kontrol_et():
                 
               konu = "🚨 YENİ DUYURU EKLENDİ!"
               icerik = (
-                  f"Merhaba,\n\nMEB YYEGM sayfasında SON 1 GÜN İÇİNDE yeni bir duyuru yayınlandı:\n\n"
-                  f"📅 Tarih: {tarih_metni}\n"
+                  f"Merhaba,\n\nMEB YYEGM sayfasında SON {KONTROL_GUN_SAYISI} GÜN İÇİNDE yayınlanan bir duyuru bulundu:\n\n"
+                  f"📅 Tarih: {temiz_tarih_str}\n"
                   f"📌 Başlık: {baslik}\n"
                   f"🔗 Link: {link}\n\n"
                   f"Kontrol Edilen Zaman: {bugun_str}"
               )
               
-              # Şartı sağlayan her duyuru için ayrı ayrı mail atar
               eposta_gonder(konu, icerik)
               yeni_duyuru_bulundu = True
 
-    # Eğer sayfa tarandı ve son 1 güne ait HİÇBİR duyuru bulunamadıysa:
+    # Eğer şartları sağlayan hiçbir duyuru bulunamadıysa:
     if not yeni_duyuru_bulundu:
       konu = "ℹ️ MEB YYEGM Günlük Kontrol"
       icerik = (
           f"Bugün ({bugun_str}) saat 17.00 itibarıyla sayfa kontrol edildi.\n"
-          f"Son 1 gün içinde yayınlanmış YENİ BİR DUYURU YOKTUR.\n\n"
+          f"Son {KONTROL_GUN_SAYISI} gün içinde yayınlanmış YENİ BİR DUYURU YOKTUR.\n\n"
           f"Adres: {URL}"
       )
       eposta_gonder(konu, icerik)
 
   except Exception as e:
     print(f"Hata: {e}")
-
 
 if __name__ == "__main__":
   duyurulari_kontrol_et()
