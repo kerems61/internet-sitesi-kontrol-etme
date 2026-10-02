@@ -54,20 +54,24 @@ def duyurulari_kontrol_et():
 
     en_son_baslik = ""
     en_son_link = ""
-    en_son_tarih = ""
 
-    # Tablo satırlarını tarayıp tarih içeren ilk duyuruyu alıyoruz
-    for tr in soup.find_all("tr"):
-      tds = tr.find_all("td")
-      if len(tds) >= 2:
-        tarih_aday = tds[0].get_text(strip=True)
-        if "." in tarih_aday or "/" in tarih_aday:
-          link_tag = tds[1].find("a")
-          if link_tag:
-            en_son_tarih = tarih_aday
-            en_son_baslik = link_tag.get_text(strip=True)
-            en_son_link = link_tag.get("href", "")
-            break
+    # Sayfadaki tüm linkleri (a etiketlerini) tarayalım
+    for a in soup.find_all("a"):
+      metin = a.get_text(strip=True)
+      link = a.get("href", "")
+
+      # Uzun ve duyuru olabilecek nitelikteki metinleri seçiyoruz (Anasayfa, menü vb. hariç)
+      if (
+          len(metin) > 30
+          and "Anasayfa" not in metin
+          and "Bakanlık" not in metin
+          and "Mevzuat" not in metin
+          and "İletişim" not in metin
+          and "Genel Müdürlük" not in metin
+      ):
+        en_son_baslik = metin
+        en_son_link = link
+        break  # İlk bulduğumuz en güncel duyurudur
 
     if en_son_baslik:
       if en_son_link.startswith("/"):
@@ -78,16 +82,15 @@ def duyurulari_kontrol_et():
       konu = "📢 MEB YYEGM: En Son Duyuru"
       icerik = (
           f"Merhaba,\n\nMEB YYEGM duyuru sayfasındaki en son duyuru başarıyla"
-          f" yakalandı:\n\n📅 Tarih: {en_son_tarih}\n📌 Duyuru Başlığı:"
-          f"\n{en_son_baslik}\n\n🔗 Bağlantı: {en_son_link}\n\nKontrol Edilen"
-          f" Zaman: {bugun_tarih}"
+          f" yakalandı:\n\n📌 Duyuru Başlığı:\n{en_son_baslik}\n\n🔗 Bağlantı:"
+          f" {en_son_link}\n\nKontrol Edilen Zaman: {bugun_tarih}"
       )
       eposta_gonder(konu, icerik)
     else:
-      konu = "ℹ️️ MEB YYEGM Günlük Kontrol"
+      konu = "ℹ️ MEB YYEGM Günlük Kontrol"
       icerik = (
           f"Bugün ({bugun_tarih}) saat 17.00 itibarıyla sayfa kontrol edildi,"
-          f" ancak duyuru satırı bulunamadı.\n\nAdres: {URL}"
+          f" ancak duyuru metnine ulaşılamadı.\n\nAdres: {URL}"
       )
       eposta_gonder(konu, icerik)
 
